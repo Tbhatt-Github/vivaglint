@@ -1,0 +1,53 @@
+# Glint API — settings for read_glint_survey_api()
+#
+# Copy this file to `.Renviron` (in your project root, or your home directory
+# at ~/.Renviron for cross-project use), then fill in the values below. R
+# auto-loads `.Renviron` on session startup. Format: KEY=value per line, no
+# quotes, no spaces around =.
+
+
+# ---------- Required for every call ----------
+
+# Microsoft Entra tenant ID (GUID).
+GLINT_TENANT_ID=00000000-0000-0000-0000-000000000000
+
+# App registration's Application (client) ID (GUID).
+GLINT_CLIENT_ID=00000000-0000-0000-0000-000000000000
+
+# App registration's client secret value.
+GLINT_CLIENT_SECRET=replace-me
+
+# Your Glint experience identifier. Looks like name@tenant.
+GLINT_EXPERIENCE_NAME=name@tenant
+
+
+# ---------- Mode selection (optional) ----------
+
+# Which export mode read_glint_survey_api() should run when called with no
+# `mode` argument. Valid values:
+#   cycle      - a single survey cycle (needs both GLINT_SURVEY_UUID and GLINT_CYCLE_ID)
+#   survey     - every cycle of one survey (needs GLINT_SURVEY_UUID)
+#   daterange  - every survey in the experience within the date window below
+# Leave blank to let the function infer from which IDs are populated.
+GLINT_MODE=
+
+
+# ---------- Mode-specific identifiers (optional) ----------
+
+# Survey UUID. Required for cycle and survey modes. Find it in the Glint
+# admin URL: /config/program/{this-is-the-survey-uuid}/pulse/...
+GLINT_SURVEY_UUID=
+
+# Cycle ID. Required for cycle mode. Find it in the Glint admin URL:
+# /config/program/.../pulse/{this-is-the-cycle-id}
+GLINT_CYCLE_ID=
+
+
+# ---------- Date window (optional, daterange + survey modes) ----------
+
+# Start / end of the export window in ISO format (YYYY-MM-DD).
+# Leave both blank to let the API apply its default (about the last 6 months).
+# For historical surveys older than 6 months, set GLINT_START_DATE to before
+# the survey opened.
+GLINT_START_DATE=
+GLINT_END_DATE=
