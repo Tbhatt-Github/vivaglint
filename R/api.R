@@ -207,6 +207,68 @@ glint_env <- function(var_name, label) {
 }
 
 
+#' Read an optional Glint env var, returning NULL when unset.
+#'
+#' Sibling to [glint_env()] for inputs that may legitimately be absent
+#' (mode-specific parameters, optional date filters). Returning NULL lets
+#' the caller decide whether the absence is fatal.
+#'
+#' @keywords internal
+glint_env_optional <- function(var_name) {
+  val <- Sys.getenv(var_name, unset = "")
+  if (nzchar(val)) val else NULL
+}
+
+
+#' Infer the export mode from which identifiers are provided.
+#'
+#' Used as a backward-compatible fallback when the caller doesn't pass an
+#' explicit `mode` to [read_glint_survey_api()]. Both IDs present => cycle;
+#' survey UUID only => survey; neither => daterange.
+#'
+#' @keywords internal
+infer_mode <- function(survey_uuid, cycle_id) {
+  has_survey <- !is.null(survey_uuid) && nzchar(survey_uuid)
+  has_cycle  <- !is.null(cycle_id)    && nzchar(cycle_id)
+  if (has_survey && has_cycle) {
+    return("cycle")
+  }
+  if (has_survey) {
+    return("survey")
+  }
+  "daterange"
+}
+
+
+#' Construct the Microsoft Graph exportSurveys URL for a given mode.
+#'
+#' Three URL shapes, all rooted at [glint_graph_base]:
+#' * `cycle`: `.../experiences/{exp}/surveys/{uuid}/surveyCycles/{cid}/exportSurveys`
+#' * `survey`: `.../experiences/{exp}/surveys/{uuid}/exportSurveys`
+#' * `daterange`: `.../experiences/{exp}/exportSurveys`
+#'
+#' @keywords internal
+build_export_url <- function(mode, experience_name, survey_uuid = NULL, cycle_id = NULL) {
+  base <- paste0(
+    glint_graph_base, "/",
+    utils::URLencode(experience_name, reserved = TRUE)
+  )
+  switch(mode,
+    cycle = paste0(
+      base, "/surveys/", survey_uuid,
+      "/surveyCycles/", cycle_id, "/exportSurveys"
+    ),
+    survey = paste0(
+      base, "/surveys/", survey_uuid, "/exportSurveys"
+    ),
+    daterange = paste0(
+      base, "/exportSurveys"
+    ),
+    stop("Unknown export mode: '", mode, "'.", call. = FALSE)
+  )
+}
+
+
 glint_format_datetime <- function(value) {
   if (is.null(value)) {
     return(NULL)
@@ -392,7 +454,18 @@ glint_download_export <- function(job_id, experience_name) {
 }
 
 
-glint_import_export_zip <- function(resp, encoding = "UTF-8") {
+#' Extract the export ZIP and load its CSVs.
+#'
+#' @param resp httr response object containing the ZIP bytes.
+#' @param encoding Character encoding to pass to [readr::read_csv()].
+#' @param combine Controls multi-CSV handling. When `TRUE` (the default and
+#'   backward-compatible behavior), CSVs sharing an identical column schema
+#'   are stitched together with [dplyr::bind_rows()]. When `FALSE`, every
+#'   multi-CSV export is returned as a named list of data frames keyed by
+#'   filename (without `.csv`), regardless of schema match. Single-CSV
+#'   exports are always returned as a single data frame.
+#' @keywords internal
+glint_import_export_zip <- function(resp, encoding = "UTF-8", combine = TRUE) {
   raw_bytes <- httr::content(resp, "raw")
 
   tmp_zip <- tempfile(fileext = ".zip")
@@ -430,13 +503,15 @@ glint_import_export_zip <- function(resp, encoding = "UTF-8") {
     return(dfs[[1]])
   }
 
-  first_cols <- names(dfs[[1]])
-  same_schema <- all(vapply(dfs, function(df) {
-    identical(names(df), first_cols)
-  }, logical(1)))
+  if (isTRUE(combine)) {
+    first_cols <- names(dfs[[1]])
+    same_schema <- all(vapply(dfs, function(df) {
+      identical(names(df), first_cols)
+    }, logical(1)))
 
-  if (same_schema) {
-    return(dplyr::bind_rows(dfs))
+    if (same_schema) {
+      return(dplyr::bind_rows(dfs))
+    }
   }
 
   dfs
@@ -449,7 +524,8 @@ glint_run_export_pipeline <- function(export_url,
                                       poll_interval = 10,
                                       max_attempts = 60,
                                       encoding = "UTF-8",
-                                      experience_name) {
+                                      experience_name,
+                                      combine = TRUE) {
   job_id <- glint_start_export(export_url, start_date = start_date, end_date = end_date)
   glint_poll_status(
     job_id,
@@ -458,5 +534,5 @@ glint_run_export_pipeline <- function(export_url,
     max_attempts = max_attempts
   )
   resp <- glint_download_export(job_id, experience_name = experience_name)
-  glint_import_export_zip(resp, encoding = encoding)
+  glint_import_export_zip(resp, encoding = encoding, combine = combine)
 }
