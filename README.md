@@ -83,6 +83,14 @@ recent <- read_glint_survey_api(
   emp_id_col = "EMP ID"
 )
 
+# Any of the above can also persist the raw zip alongside the parsed data
+# by setting save_zip_to (or the GLINT_SAVE_ZIP_TO env var):
+recent <- read_glint_survey_api(
+  mode        = "daterange",
+  emp_id_col  = "EMP ID",
+  save_zip_to = "~/glint-archive"   # writes glint-export-{job_id}.zip in that folder
+)
+
 # 2. Get summary statistics (5-point scale)
 summary <- summarize_survey(survey, scale_points = 5)
 print(summary)

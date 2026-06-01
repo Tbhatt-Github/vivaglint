@@ -51,3 +51,14 @@ GLINT_CYCLE_ID=
 # the survey opened.
 GLINT_START_DATE=
 GLINT_END_DATE=
+
+
+# ---------- Optional: also persist the raw export zip ----------
+
+# Path where read_glint_survey_api() should write the raw export zip in
+# addition to returning parsed data frames. Useful for audit trails or for
+# feeding the zip into other downstream tools. Leave blank to skip.
+# If you set a directory (or a path ending with / or \), the file is named
+# glint-export-{job_id}.zip inside it. Otherwise this is treated as a full
+# file path and overwritten on each call.
+GLINT_SAVE_ZIP_TO=

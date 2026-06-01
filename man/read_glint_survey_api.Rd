@@ -20,6 +20,7 @@ read_glint_survey_api(
   encoding = "UTF-8",
   poll_interval = 10,
   max_attempts = 60,
+  save_zip_to = NULL,
   experience_name = NULL
 )
 }
@@ -62,6 +63,14 @@ to \code{GLINT_END_DATE}.}
 \item{poll_interval}{Seconds to wait between status checks (default: 10)}
 
 \item{max_attempts}{Maximum number of polling attempts (default: 60)}
+
+\item{save_zip_to}{Optional path. When set, the raw export zip Microsoft
+Graph returns is also written to disk before being parsed into R data
+frames — useful for audit trails or feeding other tools. If the path is
+an existing directory (or ends with a path separator), the file is
+named \verb{glint-export-\{job_id\}.zip} inside it; otherwise the path is
+treated as a full file path. Falls back to \code{GLINT_SAVE_ZIP_TO} when
+the argument is omitted. Defaults to \code{NULL} (no zip is persisted).}
 
 \item{experience_name}{Optional Viva Glint experience name to override the
 GLINT_EXPERIENCE_NAME environment variable}
@@ -111,6 +120,7 @@ from the values in \code{.Renviron}:
 \item \code{mode} <- \code{GLINT_MODE}
 \item \code{start_date} <- \code{GLINT_START_DATE}
 \item \code{end_date} <- \code{GLINT_END_DATE}
+\item \code{save_zip_to} <- \code{GLINT_SAVE_ZIP_TO}
 }
 
 Explicit arguments always win over env vars.

@@ -111,6 +111,7 @@ glint_setup <- function(tenant_id,
 #' * `mode` <- `GLINT_MODE`
 #' * `start_date` <- `GLINT_START_DATE`
 #' * `end_date` <- `GLINT_END_DATE`
+#' * `save_zip_to` <- `GLINT_SAVE_ZIP_TO`
 #'
 #' Explicit arguments always win over env vars.
 #'
@@ -138,6 +139,13 @@ glint_setup <- function(tenant_id,
 #' @param encoding Character string specifying file encoding (default: "UTF-8")
 #' @param poll_interval Seconds to wait between status checks (default: 10)
 #' @param max_attempts Maximum number of polling attempts (default: 60)
+#' @param save_zip_to Optional path. When set, the raw export zip Microsoft
+#'   Graph returns is also written to disk before being parsed into R data
+#'   frames — useful for audit trails or feeding other tools. If the path is
+#'   an existing directory (or ends with a path separator), the file is
+#'   named `glint-export-{job_id}.zip` inside it; otherwise the path is
+#'   treated as a full file path. Falls back to `GLINT_SAVE_ZIP_TO` when
+#'   the argument is omitted. Defaults to `NULL` (no zip is persisted).
 #' @param experience_name Optional Viva Glint experience name to override the
 #'   GLINT_EXPERIENCE_NAME environment variable
 #'
@@ -197,6 +205,7 @@ read_glint_survey_api <- function(survey_uuid = NULL,
                                   encoding = "UTF-8",
                                   poll_interval = 10,
                                   max_attempts = 60,
+                                  save_zip_to = NULL,
                                   experience_name = NULL) {
   # Resolve env-var fallbacks for each input the caller didn't pass.
   survey_uuid <- survey_uuid %||% glint_env_optional("GLINT_SURVEY_UUID")
@@ -204,6 +213,7 @@ read_glint_survey_api <- function(survey_uuid = NULL,
   start_date  <- start_date  %||% glint_env_optional("GLINT_START_DATE")
   end_date    <- end_date    %||% glint_env_optional("GLINT_END_DATE")
   mode        <- mode        %||% glint_env_optional("GLINT_MODE")
+  save_zip_to <- save_zip_to %||% glint_env_optional("GLINT_SAVE_ZIP_TO")
 
   # Pick a mode if nothing said which one.
   if (is.null(mode)) {
@@ -251,7 +261,8 @@ read_glint_survey_api <- function(survey_uuid = NULL,
     max_attempts = max_attempts,
     encoding = encoding,
     experience_name = exp_name,
-    combine = FALSE
+    combine = FALSE,
+    save_zip_to = save_zip_to
   )
 
   build_args <- list(
@@ -631,7 +642,8 @@ glint_run_export_pipeline <- function(export_url,
                                       max_attempts = 60,
                                       encoding = "UTF-8",
                                       experience_name,
-                                      combine = TRUE) {
+                                      combine = TRUE,
+                                      save_zip_to = NULL) {
   job_id <- glint_start_export(export_url, start_date = start_date, end_date = end_date)
   glint_poll_status(
     job_id,
@@ -640,5 +652,43 @@ glint_run_export_pipeline <- function(export_url,
     max_attempts = max_attempts
   )
   resp <- glint_download_export(job_id, experience_name = experience_name)
+
+  # Optionally persist the raw zip alongside in-memory parsing. We do this
+  # before the import step so a parse error doesn't lose the bytes.
+  if (!is.null(save_zip_to) && nzchar(save_zip_to)) {
+    persist_export_zip(resp, save_zip_to, job_id)
+  }
+
   glint_import_export_zip(resp, encoding = encoding, combine = combine)
+}
+
+
+#' Write the raw export zip to disk before in-memory parsing.
+#'
+#' Used by the export pipeline when the caller passes `save_zip_to`. Path
+#' semantics: if `path` ends with a separator or is an existing directory,
+#' the zip is written as `glint-export-{job_id}.zip` inside it; otherwise
+#' `path` is treated as a full file path. Parent directories are created if
+#' missing. Any pre-existing file at the destination is overwritten.
+#'
+#' @keywords internal
+persist_export_zip <- function(resp, path, job_id) {
+  ends_with_sep   <- grepl("[/\\\\]$", path)
+  is_existing_dir <- dir.exists(path)
+
+  dest <- if (ends_with_sep || is_existing_dir) {
+    file.path(sub("[/\\\\]$", "", path),
+              paste0("glint-export-", job_id, ".zip"))
+  } else {
+    path
+  }
+
+  parent <- dirname(dest)
+  if (nzchar(parent) && !dir.exists(parent)) {
+    dir.create(parent, recursive = TRUE, showWarnings = FALSE)
+  }
+
+  writeBin(httr::content(resp, "raw"), dest)
+  message("Export zip saved to: ", dest)
+  invisible(dest)
 }
