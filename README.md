@@ -56,9 +56,30 @@ glint_setup(
   client_secret = "your-client-secret",
   experience_name = "your-experience-name"
 )
+
+# Three export modes — pick whichever matches the question you want to ask.
+# Inputs you don't pass are read from env vars (GLINT_SURVEY_UUID,
+# GLINT_CYCLE_ID, GLINT_MODE, GLINT_START_DATE, GLINT_END_DATE).
+
+# Cycle mode (single survey cycle):
 survey <- read_glint_survey_api(
   survey_uuid = "your-survey-uuid",
-  cycle_id = "your-cycle-id",
+  cycle_id    = "your-cycle-id",
+  emp_id_col  = "EMP ID"
+)
+
+# Survey mode (every cycle of one survey, returned as a named list):
+all_cycles <- read_glint_survey_api(
+  mode        = "survey",
+  survey_uuid = "your-survey-uuid",
+  emp_id_col  = "EMP ID"
+)
+
+# Date-range mode (every survey active in the window, returned as a named list):
+recent <- read_glint_survey_api(
+  mode       = "daterange",
+  start_date = "2025-01-01",
+  end_date   = "2025-03-31",
   emp_id_col = "EMP ID"
 )
 

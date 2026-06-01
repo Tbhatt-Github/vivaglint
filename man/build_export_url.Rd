@@ -7,7 +7,7 @@
 build_export_url(mode, experience_name, survey_uuid = NULL, cycle_id = NULL)
 }
 \description{
-Three URL shapes, all rooted at \link{glint_graph_base}:
+Three URL shapes, all rooted at the package-level \code{glint_graph_base}:
 \itemize{
 \item \code{cycle}: \code{.../experiences/{exp}/surveys/{uuid}/surveyCycles/{cid}/exportSurveys}
 \item \code{survey}: \code{.../experiences/{exp}/surveys/{uuid}/exportSurveys}
