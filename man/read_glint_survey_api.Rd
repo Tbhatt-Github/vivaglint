@@ -5,8 +5,9 @@
 \title{Read Viva Glint Survey Data via API}
 \usage{
 read_glint_survey_api(
-  survey_uuid,
-  cycle_id,
+  survey_uuid = NULL,
+  cycle_id = NULL,
+  mode = NULL,
   emp_id_col = NULL,
   first_name_col = "First Name",
   last_name_col = "Last Name",
@@ -19,15 +20,22 @@ read_glint_survey_api(
   encoding = "UTF-8",
   poll_interval = 10,
   max_attempts = 60,
+  save_zip_to = NULL,
   experience_name = NULL
 )
 }
 \arguments{
-\item{survey_uuid}{Survey UUID from Viva Glint}
+\item{survey_uuid}{Survey UUID from Viva Glint. Falls back to
+\code{GLINT_SURVEY_UUID}. Required for \code{"cycle"} and \code{"survey"} modes.}
 
-\item{cycle_id}{Survey cycle ID}
+\item{cycle_id}{Survey cycle ID. Falls back to \code{GLINT_CYCLE_ID}. Required
+for \code{"cycle"} mode.}
 
-\item{emp_id_col}{Character string specifying the employee ID column name}
+\item{mode}{One of \code{"cycle"}, \code{"survey"}, \code{"daterange"}. Falls back to
+\code{GLINT_MODE}. If still unset, inferred from which identifiers are
+populated. Explicit arguments always win.}
+
+\item{emp_id_col}{Character string specifying the employee ID column name.}
 
 \item{first_name_col}{Column name for first name (default: "First Name")}
 
@@ -43,11 +51,12 @@ read_glint_survey_api(
 \item{sent_date_col}{Column name for survey sent date
 (default: "Survey Cycle Sent Date")}
 
-\item{start_date}{Optional start date/time for the export window. Can be a
-character string in ISO 8601 format, or a Date/POSIXct value.}
+\item{start_date}{Optional start date/time for the export window. Falls
+back to \code{GLINT_START_DATE}. Can be a character string in ISO 8601
+format, or a Date/POSIXct value.}
 
-\item{end_date}{Optional end date/time for the export window. Can be a
-character string in ISO 8601 format, or a Date/POSIXct value.}
+\item{end_date}{Optional end date/time for the export window. Falls back
+to \code{GLINT_END_DATE}.}
 
 \item{encoding}{Character string specifying file encoding (default: "UTF-8")}
 
@@ -55,19 +64,68 @@ character string in ISO 8601 format, or a Date/POSIXct value.}
 
 \item{max_attempts}{Maximum number of polling attempts (default: 60)}
 
+\item{save_zip_to}{Optional path. When set, the raw export zip Microsoft
+Graph returns is also written to disk before being parsed into R data
+frames — useful for audit trails or feeding other tools. If the path is
+an existing directory (or ends with a path separator), the file is
+named \verb{glint-export-\{job_id\}.zip} inside it; otherwise the path is
+treated as a full file path. Falls back to \code{GLINT_SAVE_ZIP_TO} when
+the argument is omitted. Defaults to \code{NULL} (no zip is persisted).}
+
 \item{experience_name}{Optional Viva Glint experience name to override the
 GLINT_EXPERIENCE_NAME environment variable}
 }
 \value{
-A \code{glint_survey} object (same structure as \code{read_glint_survey}).
-The \code{metadata$file_path} field is set to \code{NA}.
+Single-CSV exports (typical for \code{"cycle"} mode) return a \code{glint_survey}
+object with the same structure as \code{\link[=read_glint_survey]{read_glint_survey()}} produces.
+Multi-CSV exports (typical for \code{"survey"} and \code{"daterange"} modes) return
+a named list of \code{glint_survey} objects keyed by source CSV filename. CSVs
+that do not fit the standard GlintSurvey schema (e.g. supplementary
+metadata or attribute files) are returned as plain \code{data.frame} entries
+in that list with a warning.
 }
 \description{
-Exports a survey cycle through the Microsoft Graph beta API, downloads the
-resulting ZIP archive, and returns a \code{glint_survey} object. This is an
-alternative to \code{read_glint_survey()} when you want to pull data directly
+Exports survey data through the Microsoft Graph beta API, downloads the
+resulting ZIP archive, and returns either a \code{glint_survey} object or a
+named list of them depending on what the export contains. This is an
+alternative to \code{\link[=read_glint_survey]{read_glint_survey()}} when you want to pull data directly
 from Viva Glint instead of importing a local CSV export.
 }
+\section{Modes}{
+Three export shapes are supported via the \code{mode} argument:
+\itemize{
+\item \code{"cycle"} — exports a single survey cycle. Requires \code{survey_uuid} and
+\code{cycle_id}. This is the existing behavior.
+\item \code{"survey"} — exports every cycle of one survey. Requires \code{survey_uuid}.
+\item \code{"daterange"} — exports every survey in the experience that has activity
+between \code{start_date} and \code{end_date}. Both dates are optional; if both
+are omitted, the API applies its default window (about the last six
+months).
+}
+
+When \code{mode} is \code{NULL}, it is read from the \code{GLINT_MODE} env var; if that
+is also unset, it is inferred from which identifiers are populated
+(both IDs => \code{"cycle"}, survey UUID only => \code{"survey"}, neither =>
+\code{"daterange"}). This keeps the existing positional call
+\code{read_glint_survey_api(survey_uuid, cycle_id)} working unchanged.
+}
+
+\section{Environment variable fallbacks}{
+Any input not supplied as a function argument is read from the matching
+environment variable, so the typical call only specifies what differs
+from the values in \code{.Renviron}:
+\itemize{
+\item \code{survey_uuid} <- \code{GLINT_SURVEY_UUID}
+\item \code{cycle_id} <- \code{GLINT_CYCLE_ID}
+\item \code{mode} <- \code{GLINT_MODE}
+\item \code{start_date} <- \code{GLINT_START_DATE}
+\item \code{end_date} <- \code{GLINT_END_DATE}
+\item \code{save_zip_to} <- \code{GLINT_SAVE_ZIP_TO}
+}
+
+Explicit arguments always win over env vars.
+}
+
 \examples{
 \dontrun{
 glint_setup(
@@ -77,10 +135,25 @@ glint_setup(
   experience_name = "your-experience-name"
 )
 
-survey <- read_glint_survey_api(
+# Cycle mode (also the default if you pass both IDs):
+cycle_survey <- read_glint_survey_api(
   survey_uuid = "your-survey-uuid",
   cycle_id = "your-cycle-id",
-  emp_id_col = "EMP ID"
+  emp_id_col = "Employment ID"
+)
+
+# Survey mode: every cycle of one survey, returned as a named list.
+all_cycles <- read_glint_survey_api(
+  mode = "survey",
+  survey_uuid = "your-survey-uuid",
+  emp_id_col = "Employment ID"
+)
+
+# Date-range mode, with everything else read from .Renviron
+# (GLINT_START_DATE, GLINT_END_DATE):
+recent <- read_glint_survey_api(
+  mode = "daterange",
+  emp_id_col = "Employment ID"
 )
 }
 }

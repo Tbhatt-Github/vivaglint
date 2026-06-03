@@ -76,14 +76,53 @@ glint_setup <- function(tenant_id,
 
 #' Read Viva Glint Survey Data via API
 #'
-#' Exports a survey cycle through the Microsoft Graph beta API, downloads the
-#' resulting ZIP archive, and returns a \code{glint_survey} object. This is an
-#' alternative to \code{read_glint_survey()} when you want to pull data directly
+#' Exports survey data through the Microsoft Graph beta API, downloads the
+#' resulting ZIP archive, and returns either a `glint_survey` object or a
+#' named list of them depending on what the export contains. This is an
+#' alternative to [read_glint_survey()] when you want to pull data directly
 #' from Viva Glint instead of importing a local CSV export.
 #'
-#' @param survey_uuid Survey UUID from Viva Glint
-#' @param cycle_id Survey cycle ID
-#' @param emp_id_col Character string specifying the employee ID column name
+#' # Modes
+#'
+#' Three export shapes are supported via the `mode` argument:
+#'
+#' * `"cycle"` — exports a single survey cycle. Requires `survey_uuid` and
+#'   `cycle_id`. This is the existing behavior.
+#' * `"survey"` — exports every cycle of one survey. Requires `survey_uuid`.
+#' * `"daterange"` — exports every survey in the experience that has activity
+#'   between `start_date` and `end_date`. Both dates are optional; if both
+#'   are omitted, the API applies its default window (about the last six
+#'   months).
+#'
+#' When `mode` is `NULL`, it is read from the `GLINT_MODE` env var; if that
+#' is also unset, it is inferred from which identifiers are populated
+#' (both IDs => `"cycle"`, survey UUID only => `"survey"`, neither =>
+#' `"daterange"`). This keeps the existing positional call
+#' `read_glint_survey_api(survey_uuid, cycle_id)` working unchanged.
+#'
+#' # Environment variable fallbacks
+#'
+#' Any input not supplied as a function argument is read from the matching
+#' environment variable, so the typical call only specifies what differs
+#' from the values in `.Renviron`:
+#'
+#' * `survey_uuid` <- `GLINT_SURVEY_UUID`
+#' * `cycle_id` <- `GLINT_CYCLE_ID`
+#' * `mode` <- `GLINT_MODE`
+#' * `start_date` <- `GLINT_START_DATE`
+#' * `end_date` <- `GLINT_END_DATE`
+#' * `save_zip_to` <- `GLINT_SAVE_ZIP_TO`
+#'
+#' Explicit arguments always win over env vars.
+#'
+#' @param survey_uuid Survey UUID from Viva Glint. Falls back to
+#'   `GLINT_SURVEY_UUID`. Required for `"cycle"` and `"survey"` modes.
+#' @param cycle_id Survey cycle ID. Falls back to `GLINT_CYCLE_ID`. Required
+#'   for `"cycle"` mode.
+#' @param mode One of `"cycle"`, `"survey"`, `"daterange"`. Falls back to
+#'   `GLINT_MODE`. If still unset, inferred from which identifiers are
+#'   populated. Explicit arguments always win.
+#' @param emp_id_col Character string specifying the employee ID column name.
 #' @param first_name_col Column name for first name (default: "First Name")
 #' @param last_name_col Column name for last name (default: "Last Name")
 #' @param email_col Column name for email (default: "Email")
@@ -92,18 +131,32 @@ glint_setup <- function(tenant_id,
 #'   (default: "Survey Cycle Completion Date")
 #' @param sent_date_col Column name for survey sent date
 #'   (default: "Survey Cycle Sent Date")
-#' @param start_date Optional start date/time for the export window. Can be a
-#'   character string in ISO 8601 format, or a Date/POSIXct value.
-#' @param end_date Optional end date/time for the export window. Can be a
-#'   character string in ISO 8601 format, or a Date/POSIXct value.
+#' @param start_date Optional start date/time for the export window. Falls
+#'   back to `GLINT_START_DATE`. Can be a character string in ISO 8601
+#'   format, or a Date/POSIXct value.
+#' @param end_date Optional end date/time for the export window. Falls back
+#'   to `GLINT_END_DATE`.
 #' @param encoding Character string specifying file encoding (default: "UTF-8")
 #' @param poll_interval Seconds to wait between status checks (default: 10)
 #' @param max_attempts Maximum number of polling attempts (default: 60)
+#' @param save_zip_to Optional path. When set, the raw export zip Microsoft
+#'   Graph returns is also written to disk before being parsed into R data
+#'   frames — useful for audit trails or feeding other tools. If the path is
+#'   an existing directory (or ends with a path separator), the file is
+#'   named `glint-export-{job_id}.zip` inside it; otherwise the path is
+#'   treated as a full file path. Falls back to `GLINT_SAVE_ZIP_TO` when
+#'   the argument is omitted. Defaults to `NULL` (no zip is persisted).
 #' @param experience_name Optional Viva Glint experience name to override the
 #'   GLINT_EXPERIENCE_NAME environment variable
 #'
-#' @return A \code{glint_survey} object (same structure as \code{read_glint_survey}).
-#'   The \code{metadata$file_path} field is set to \code{NA}.
+#' @return
+#' Single-CSV exports (typical for `"cycle"` mode) return a `glint_survey`
+#' object with the same structure as [read_glint_survey()] produces.
+#' Multi-CSV exports (typical for `"survey"` and `"daterange"` modes) return
+#' a named list of `glint_survey` objects keyed by source CSV filename. CSVs
+#' that do not fit the standard GlintSurvey schema (e.g. supplementary
+#' metadata or attribute files) are returned as plain `data.frame` entries
+#' in that list with a warning.
 #'
 #' @export
 #'
@@ -116,14 +169,30 @@ glint_setup <- function(tenant_id,
 #'   experience_name = "your-experience-name"
 #' )
 #'
-#' survey <- read_glint_survey_api(
+#' # Cycle mode (also the default if you pass both IDs):
+#' cycle_survey <- read_glint_survey_api(
 #'   survey_uuid = "your-survey-uuid",
 #'   cycle_id = "your-cycle-id",
-#'   emp_id_col = "EMP ID"
+#'   emp_id_col = "Employment ID"
+#' )
+#'
+#' # Survey mode: every cycle of one survey, returned as a named list.
+#' all_cycles <- read_glint_survey_api(
+#'   mode = "survey",
+#'   survey_uuid = "your-survey-uuid",
+#'   emp_id_col = "Employment ID"
+#' )
+#'
+#' # Date-range mode, with everything else read from .Renviron
+#' # (GLINT_START_DATE, GLINT_END_DATE):
+#' recent <- read_glint_survey_api(
+#'   mode = "daterange",
+#'   emp_id_col = "Employment ID"
 #' )
 #' }
-read_glint_survey_api <- function(survey_uuid,
-                                  cycle_id,
+read_glint_survey_api <- function(survey_uuid = NULL,
+                                  cycle_id = NULL,
+                                  mode = NULL,
                                   emp_id_col = NULL,
                                   first_name_col = "First Name",
                                   last_name_col = "Last Name",
@@ -136,12 +205,38 @@ read_glint_survey_api <- function(survey_uuid,
                                   encoding = "UTF-8",
                                   poll_interval = 10,
                                   max_attempts = 60,
+                                  save_zip_to = NULL,
                                   experience_name = NULL) {
-  if (!nzchar(survey_uuid)) {
-    stop("survey_uuid must be provided.", call. = FALSE)
+  # Resolve env-var fallbacks for each input the caller didn't pass.
+  survey_uuid <- survey_uuid %||% glint_env_optional("GLINT_SURVEY_UUID")
+  cycle_id    <- cycle_id    %||% glint_env_optional("GLINT_CYCLE_ID")
+  start_date  <- start_date  %||% glint_env_optional("GLINT_START_DATE")
+  end_date    <- end_date    %||% glint_env_optional("GLINT_END_DATE")
+  mode        <- mode        %||% glint_env_optional("GLINT_MODE")
+  save_zip_to <- save_zip_to %||% glint_env_optional("GLINT_SAVE_ZIP_TO")
+
+  # Pick a mode if nothing said which one.
+  if (is.null(mode)) {
+    mode <- infer_mode(survey_uuid, cycle_id)
   }
-  if (!nzchar(cycle_id)) {
-    stop("cycle_id must be provided.", call. = FALSE)
+  mode <- match.arg(mode, c("cycle", "survey", "daterange"))
+
+  # Per-mode required-input validation. Errors mention both the function arg
+  # and the env-var fallback so callers can fix whichever source they prefer.
+  if (mode == "cycle") {
+    if (is.null(survey_uuid) || !nzchar(survey_uuid)) {
+      stop("survey_uuid must be provided for cycle mode (or set GLINT_SURVEY_UUID).",
+           call. = FALSE)
+    }
+    if (is.null(cycle_id) || !nzchar(cycle_id)) {
+      stop("cycle_id must be provided for cycle mode (or set GLINT_CYCLE_ID).",
+           call. = FALSE)
+    }
+  } else if (mode == "survey") {
+    if (is.null(survey_uuid) || !nzchar(survey_uuid)) {
+      stop("survey_uuid must be provided for survey mode (or set GLINT_SURVEY_UUID).",
+           call. = FALSE)
+    }
   }
 
   exp_name <- experience_name %||% glint_env(
@@ -149,13 +244,15 @@ read_glint_survey_api <- function(survey_uuid,
     "Experience Name"
   )
 
-  export_url <- paste0(
-    glint_graph_base, "/", utils::URLencode(exp_name, reserved = TRUE),
-    "/surveys/", survey_uuid,
-    "/surveyCycles/", cycle_id,
-    "/exportSurveys"
+  export_url <- build_export_url(
+    mode,
+    experience_name = exp_name,
+    survey_uuid = survey_uuid,
+    cycle_id = cycle_id
   )
 
+  # combine=FALSE so multi-CSV exports come back as a named list of data
+  # frames; we wrap each entry below.
   data <- glint_run_export_pipeline(
     export_url,
     start_date = start_date,
@@ -163,20 +260,13 @@ read_glint_survey_api <- function(survey_uuid,
     poll_interval = poll_interval,
     max_attempts = max_attempts,
     encoding = encoding,
-    experience_name = exp_name
+    experience_name = exp_name,
+    combine = FALSE,
+    save_zip_to = save_zip_to
   )
 
-  if (!is.data.frame(data)) {
-    stop(
-      "Export returned multiple CSV files with different schemas. ",
-      "Please confirm the export content in Viva Glint and retry.",
-      call. = FALSE
-    )
-  }
-
-  build_glint_survey(
-    data,
-    emp_id_col,
+  build_args <- list(
+    emp_id_col = emp_id_col,
     first_name_col = first_name_col,
     last_name_col = last_name_col,
     email_col = email_col,
@@ -185,6 +275,33 @@ read_glint_survey_api <- function(survey_uuid,
     sent_date_col = sent_date_col,
     file_path = NA_character_
   )
+
+  # Single CSV (typical for cycle mode) -> single glint_survey.
+  if (is.data.frame(data)) {
+    return(do.call(build_glint_survey, c(list(data = data), build_args)))
+  }
+
+  # Multi-CSV (typical for survey and daterange modes) -> named list. Each
+  # entry is wrapped as a glint_survey when its schema fits; entries that
+  # don't fit (supplementary metadata, attribute files, etc.) come back as
+  # raw data.frames with a warning so the caller can still inspect them.
+  result <- lapply(names(data), function(nm) {
+    df <- data[[nm]]
+    tryCatch(
+      do.call(build_glint_survey, c(list(data = df), build_args)),
+      error = function(e) {
+        warning(
+          "Could not wrap '", nm, "' as a glint_survey object (",
+          conditionMessage(e),
+          "). Returning the raw data.frame for this entry.",
+          call. = FALSE
+        )
+        df
+      }
+    )
+  })
+  names(result) <- names(data)
+  result
 }
 
 
@@ -204,6 +321,68 @@ glint_env <- function(var_name, label) {
     )
   }
   val
+}
+
+
+#' Read an optional Glint env var, returning NULL when unset.
+#'
+#' Sibling to [glint_env()] for inputs that may legitimately be absent
+#' (mode-specific parameters, optional date filters). Returning NULL lets
+#' the caller decide whether the absence is fatal.
+#'
+#' @keywords internal
+glint_env_optional <- function(var_name) {
+  val <- Sys.getenv(var_name, unset = "")
+  if (nzchar(val)) val else NULL
+}
+
+
+#' Infer the export mode from which identifiers are provided.
+#'
+#' Used as a backward-compatible fallback when the caller doesn't pass an
+#' explicit `mode` to [read_glint_survey_api()]. Both IDs present => cycle;
+#' survey UUID only => survey; neither => daterange.
+#'
+#' @keywords internal
+infer_mode <- function(survey_uuid, cycle_id) {
+  has_survey <- !is.null(survey_uuid) && nzchar(survey_uuid)
+  has_cycle  <- !is.null(cycle_id)    && nzchar(cycle_id)
+  if (has_survey && has_cycle) {
+    return("cycle")
+  }
+  if (has_survey) {
+    return("survey")
+  }
+  "daterange"
+}
+
+
+#' Construct the Microsoft Graph exportSurveys URL for a given mode.
+#'
+#' Three URL shapes, all rooted at the package-level `glint_graph_base`:
+#' * `cycle`: `.../experiences/{exp}/surveys/{uuid}/surveyCycles/{cid}/exportSurveys`
+#' * `survey`: `.../experiences/{exp}/surveys/{uuid}/exportSurveys`
+#' * `daterange`: `.../experiences/{exp}/exportSurveys`
+#'
+#' @keywords internal
+build_export_url <- function(mode, experience_name, survey_uuid = NULL, cycle_id = NULL) {
+  base <- paste0(
+    glint_graph_base, "/",
+    utils::URLencode(experience_name, reserved = TRUE)
+  )
+  switch(mode,
+    cycle = paste0(
+      base, "/surveys/", survey_uuid,
+      "/surveyCycles/", cycle_id, "/exportSurveys"
+    ),
+    survey = paste0(
+      base, "/surveys/", survey_uuid, "/exportSurveys"
+    ),
+    daterange = paste0(
+      base, "/exportSurveys"
+    ),
+    stop("Unknown export mode: '", mode, "'.", call. = FALSE)
+  )
 }
 
 
@@ -392,7 +571,18 @@ glint_download_export <- function(job_id, experience_name) {
 }
 
 
-glint_import_export_zip <- function(resp, encoding = "UTF-8") {
+#' Extract the export ZIP and load its CSVs.
+#'
+#' @param resp httr response object containing the ZIP bytes.
+#' @param encoding Character encoding to pass to [readr::read_csv()].
+#' @param combine Controls multi-CSV handling. When `TRUE` (the default and
+#'   backward-compatible behavior), CSVs sharing an identical column schema
+#'   are stitched together with [dplyr::bind_rows()]. When `FALSE`, every
+#'   multi-CSV export is returned as a named list of data frames keyed by
+#'   filename (without `.csv`), regardless of schema match. Single-CSV
+#'   exports are always returned as a single data frame.
+#' @keywords internal
+glint_import_export_zip <- function(resp, encoding = "UTF-8", combine = TRUE) {
   raw_bytes <- httr::content(resp, "raw")
 
   tmp_zip <- tempfile(fileext = ".zip")
@@ -430,13 +620,15 @@ glint_import_export_zip <- function(resp, encoding = "UTF-8") {
     return(dfs[[1]])
   }
 
-  first_cols <- names(dfs[[1]])
-  same_schema <- all(vapply(dfs, function(df) {
-    identical(names(df), first_cols)
-  }, logical(1)))
+  if (isTRUE(combine)) {
+    first_cols <- names(dfs[[1]])
+    same_schema <- all(vapply(dfs, function(df) {
+      identical(names(df), first_cols)
+    }, logical(1)))
 
-  if (same_schema) {
-    return(dplyr::bind_rows(dfs))
+    if (same_schema) {
+      return(dplyr::bind_rows(dfs))
+    }
   }
 
   dfs
@@ -449,7 +641,9 @@ glint_run_export_pipeline <- function(export_url,
                                       poll_interval = 10,
                                       max_attempts = 60,
                                       encoding = "UTF-8",
-                                      experience_name) {
+                                      experience_name,
+                                      combine = TRUE,
+                                      save_zip_to = NULL) {
   job_id <- glint_start_export(export_url, start_date = start_date, end_date = end_date)
   glint_poll_status(
     job_id,
@@ -458,5 +652,43 @@ glint_run_export_pipeline <- function(export_url,
     max_attempts = max_attempts
   )
   resp <- glint_download_export(job_id, experience_name = experience_name)
-  glint_import_export_zip(resp, encoding = encoding)
+
+  # Optionally persist the raw zip alongside in-memory parsing. We do this
+  # before the import step so a parse error doesn't lose the bytes.
+  if (!is.null(save_zip_to) && nzchar(save_zip_to)) {
+    persist_export_zip(resp, save_zip_to, job_id)
+  }
+
+  glint_import_export_zip(resp, encoding = encoding, combine = combine)
+}
+
+
+#' Write the raw export zip to disk before in-memory parsing.
+#'
+#' Used by the export pipeline when the caller passes `save_zip_to`. Path
+#' semantics: if `path` ends with a separator or is an existing directory,
+#' the zip is written as `glint-export-{job_id}.zip` inside it; otherwise
+#' `path` is treated as a full file path. Parent directories are created if
+#' missing. Any pre-existing file at the destination is overwritten.
+#'
+#' @keywords internal
+persist_export_zip <- function(resp, path, job_id) {
+  ends_with_sep   <- grepl("[/\\\\]$", path)
+  is_existing_dir <- dir.exists(path)
+
+  dest <- if (ends_with_sep || is_existing_dir) {
+    file.path(sub("[/\\\\]$", "", path),
+              paste0("glint-export-", job_id, ".zip"))
+  } else {
+    path
+  }
+
+  parent <- dirname(dest)
+  if (nzchar(parent) && !dir.exists(parent)) {
+    dir.create(parent, recursive = TRUE, showWarnings = FALSE)
+  }
+
+  writeBin(httr::content(resp, "raw"), dest)
+  message("Export zip saved to: ", dest)
+  invisible(dest)
 }

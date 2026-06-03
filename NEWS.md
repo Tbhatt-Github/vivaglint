@@ -1,3 +1,30 @@
+# vivaglint (development version)
+
+## API Enhancements
+
+* `read_glint_survey_api()` now supports three export modes via a new `mode`
+  parameter:
+    * `"cycle"` (the existing behavior) — single survey cycle.
+    * `"survey"` — every cycle of one survey.
+    * `"daterange"` — every survey in the experience active within the
+      optional start/end date window.
+* `survey_uuid`, `cycle_id`, `mode`, `start_date`, and `end_date` now fall
+  back to matching environment variables (`GLINT_SURVEY_UUID`,
+  `GLINT_CYCLE_ID`, `GLINT_MODE`, `GLINT_START_DATE`, `GLINT_END_DATE`) when
+  the argument is omitted. Explicit arguments always win over env vars.
+* When omitted, `mode` is inferred from which identifiers are populated, so
+  existing `read_glint_survey_api(survey_uuid, cycle_id)` calls keep working
+  unchanged.
+* Multi-CSV exports (common in `"survey"` and `"daterange"` modes) are
+  returned as a named list of `glint_survey` objects keyed by CSV filename.
+  Entries whose CSV does not fit the standard schema fall back to plain
+  `data.frame` with a warning.
+* New `save_zip_to` parameter on `read_glint_survey_api()`. When set to a
+  file or directory path (or via the `GLINT_SAVE_ZIP_TO` env var), the raw
+  export zip Microsoft Graph returns is written to disk in addition to
+  being parsed into R data frames. Useful for audit trails or for feeding
+  the zip into other downstream tools. Defaults to `NULL` (no zip written).
+
 # vivaglint 0.1.0
 
 ## Initial Release
