@@ -22,6 +22,7 @@ read_glint_survey_api(
   poll_interval = 10,
   max_attempts = 60,
   save_zip_to = NULL,
+  parse = TRUE,
   experience_name = NULL
 )
 }
@@ -81,10 +82,19 @@ named \verb{glint-export-\{job_id\}.zip} inside it; otherwise the path is
 treated as a full file path. Falls back to \code{GLINT_SAVE_ZIP_TO} when
 the argument is omitted. Defaults to \code{NULL} (no zip is persisted).}
 
+\item{parse}{Logical. When \code{TRUE} (the default), the function unpacks the
+downloaded zip into R data frames and wraps the results as
+\code{glint_survey} objects — today's behavior. When \code{FALSE}, the function
+downloads the zip and returns the path it was saved at, skipping the
+in-memory parse entirely. \code{parse = FALSE} requires \code{save_zip_to} to be
+set (otherwise the download has no destination); an error is raised
+before any API call is made if it isn't.}
+
 \item{experience_name}{Optional Viva Glint experience name to override the
 GLINT_EXPERIENCE_NAME environment variable}
 }
 \value{
+When \code{parse = TRUE} (the default):
 Single-CSV exports (typical for \code{"cycle"} mode) return a \code{glint_survey}
 object with the same structure as \code{\link[=read_glint_survey]{read_glint_survey()}} produces.
 Multi-CSV exports (typical for \code{"survey"} and \code{"daterange"} modes) return
@@ -92,6 +102,9 @@ a named list of \code{glint_survey} objects keyed by source CSV filename. CSVs
 that do not fit the standard GlintSurvey schema (e.g. supplementary
 metadata or attribute files) are returned as plain \code{data.frame} entries
 in that list with a warning.
+
+When \code{parse = FALSE}: a character string (invisible) — the path the raw
+export zip was written to. No data frames are constructed.
 }
 \description{
 Exports survey data through the Microsoft Graph beta API, downloads the
