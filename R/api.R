@@ -122,15 +122,22 @@ glint_setup <- function(tenant_id,
 #' @param mode One of `"cycle"`, `"survey"`, `"daterange"`. Falls back to
 #'   `GLINT_MODE`. If still unset, inferred from which identifiers are
 #'   populated. Explicit arguments always win.
-#' @param emp_id_col Character string specifying the employee ID column name.
+#' @param emp_id_col Column name for the employee identifier. Defaults to
+#'   `"Employment ID"`, the column name that Microsoft Graph emits in API
+#'   exports. Override only if your tenant's CSV uses a different name. Pass
+#'   `NULL` only via [read_glint_survey()] for CSVs that lack an employee ID
+#'   column entirely; for API exports the column is always present.
 #' @param first_name_col Column name for first name (default: "First Name")
 #' @param last_name_col Column name for last name (default: "Last Name")
 #' @param email_col Column name for email (default: "Email")
 #' @param status_col Column name for status (default: "Status")
 #' @param completion_date_col Column name for survey completion date
 #'   (default: "Survey Cycle Completion Date")
-#' @param sent_date_col Column name for survey sent date
-#'   (default: "Survey Cycle Sent Date")
+#' @param sent_date_col Column name for survey sent date. Defaults to `NULL`
+#'   because the API export does not include this column. Set it explicitly
+#'   only if your data source provides one.
+#' @param manager_id_col Column name for the manager identifier (default:
+#'   "Manager ID"). Set to `NULL` to skip manager-based functionality.
 #' @param start_date Optional start date/time for the export window. Falls
 #'   back to `GLINT_START_DATE`. Can be a character string in ISO 8601
 #'   format, or a Date/POSIXct value.
@@ -172,34 +179,30 @@ glint_setup <- function(tenant_id,
 #' # Cycle mode (also the default if you pass both IDs):
 #' cycle_survey <- read_glint_survey_api(
 #'   survey_uuid = "your-survey-uuid",
-#'   cycle_id = "your-cycle-id",
-#'   emp_id_col = "Employment ID"
+#'   cycle_id = "your-cycle-id"
 #' )
 #'
 #' # Survey mode: every cycle of one survey, returned as a named list.
 #' all_cycles <- read_glint_survey_api(
 #'   mode = "survey",
-#'   survey_uuid = "your-survey-uuid",
-#'   emp_id_col = "Employment ID"
+#'   survey_uuid = "your-survey-uuid"
 #' )
 #'
 #' # Date-range mode, with everything else read from .Renviron
 #' # (GLINT_START_DATE, GLINT_END_DATE):
-#' recent <- read_glint_survey_api(
-#'   mode = "daterange",
-#'   emp_id_col = "Employment ID"
-#' )
+#' recent <- read_glint_survey_api(mode = "daterange")
 #' }
 read_glint_survey_api <- function(survey_uuid = NULL,
                                   cycle_id = NULL,
                                   mode = NULL,
-                                  emp_id_col = NULL,
+                                  emp_id_col = "Employment ID",
                                   first_name_col = "First Name",
                                   last_name_col = "Last Name",
                                   email_col = "Email",
                                   status_col = "Status",
                                   completion_date_col = "Survey Cycle Completion Date",
-                                  sent_date_col = "Survey Cycle Sent Date",
+                                  sent_date_col = NULL,
+                                  manager_id_col = "Manager ID",
                                   start_date = NULL,
                                   end_date = NULL,
                                   encoding = "UTF-8",
@@ -273,6 +276,7 @@ read_glint_survey_api <- function(survey_uuid = NULL,
     status_col = status_col,
     completion_date_col = completion_date_col,
     sent_date_col = sent_date_col,
+    manager_id_col = manager_id_col,
     file_path = NA_character_
   )
 
